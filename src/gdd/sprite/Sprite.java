@@ -2,7 +2,7 @@ package gdd.sprite;
 
 import java.awt.Image;
 
-abstract public class Sprite {
+public abstract class Sprite {
 
     protected boolean visible;
     protected Image image;
@@ -11,22 +11,42 @@ abstract public class Sprite {
 
     protected int x;
     protected int y;
-    protected int dx;
+   protected int dx;
+   protected int dy;
 
     public Sprite() {
         visible = true;
     }
 
-    abstract public void act();
+    // Default act method
+    public void act() {
+        // Subclasses can override this method.
+    }
 
     public boolean collidesWith(Sprite other) {
-        if (other == null || !this.isVisible() || !other.isVisible()) {
+
+        if (other == null
+                || !this.isVisible()
+                || !other.isVisible()) {
+
             return false;
         }
-        return this.getX() < other.getX() + other.getImage().getWidth(null)
-                && this.getX() + this.getImage().getWidth(null) > other.getX()
-                && this.getY() < other.getY() + other.getImage().getHeight(null)
-                && this.getY() + this.getImage().getHeight(null) > other.getY();
+
+        return this.getX()
+                < other.getX()
+                + other.getImage().getWidth(null)
+
+                && this.getX()
+                + this.getImage().getWidth(null)
+                > other.getX()
+
+                && this.getY()
+                < other.getY()
+                + other.getImage().getHeight(null)
+
+                && this.getY()
+                + this.getImage().getHeight(null)
+                > other.getY();
     }
 
     public void die() {
@@ -38,6 +58,7 @@ abstract public class Sprite {
     }
 
     public void visibleCountDown() {
+
         if (visibleFrames > 0) {
             visibleFrames--;
         } else {
@@ -78,6 +99,6 @@ abstract public class Sprite {
     }
 
     public boolean isDying() {
-        return this.dying;
+        return dying;
     }
 }

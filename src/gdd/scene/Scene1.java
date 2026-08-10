@@ -15,6 +15,7 @@ import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Font;
 import java.awt.Graphics;
+import java.awt.Rectangle;
 import java.awt.Toolkit;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -22,6 +23,7 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Random;
 import javax.swing.ImageIcon;
@@ -45,6 +47,7 @@ public class Scene1 extends JPanel {
 
     private int direction = -1;
     private int deaths = 0;
+    private int playerExplosionFrames = 0;
 
     private boolean inGame = true;
     private String message = "Game Over";
@@ -58,6 +61,8 @@ public class Scene1 extends JPanel {
     private int currentRow = -1;
     // TODO load this map from a file
     private int mapOffset = 0;
+    private final HashMap<String, Rectangle> activeWallTiles = new HashMap<>();
+    private final HashSet<String> destroyedWallTiles = new HashSet<>();
     private final int[][] MAP = {
         {1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
         {0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
@@ -95,6 +100,23 @@ public class Scene1 extends JPanel {
         // initBoard();
         // gameInit();
         loadSpawnDetails();
+        loadWallTiles();
+    }
+
+    private void loadWallTiles() {
+        // MAP value 2 means a destructible wall tile.
+        MAP[0][3] = 2;
+        MAP[0][7] = 2;
+        MAP[4][2] = 2;
+        MAP[4][8] = 2;
+        MAP[8][5] = 2;
+        MAP[8][10] = 2;
+        MAP[12][1] = 2;
+        MAP[12][6] = 2;
+        MAP[16][4] = 2;
+        MAP[16][9] = 2;
+        MAP[20][2] = 2;
+        MAP[20][7] = 2;
     }
 
     private void initAudio() {
@@ -173,6 +195,8 @@ public class Scene1 extends JPanel {
     private void drawMap(Graphics g) {
         // Draw scrolling starfield background
 
+        activeWallTiles.clear();
+
         // Calculate smooth scrolling offset (1 pixel per frame)
         int scrollOffset = (frame) % BLOCKHEIGHT;
 
@@ -202,10 +226,36 @@ public class Scene1 extends JPanel {
 
                     // Draw a cluster of stars
                     drawStarCluster(g, x, y, BLOCKWIDTH, BLOCKHEIGHT);
+                } else if (MAP[mapRow][col] == 2) {
+                    String wallId = mapRow + ":" + col;
+
+                    if (!destroyedWallTiles.contains(wallId)) {
+                        int x = col * BLOCKWIDTH;
+                        drawWallTile(g, x, y, BLOCKWIDTH, BLOCKHEIGHT);
+                        activeWallTiles.put(
+                                wallId,
+                                new Rectangle(x, y, BLOCKWIDTH, BLOCKHEIGHT)
+                        );
+                    }
                 }
             }
         }
 
+    }
+
+    private void drawWallTile(Graphics g, int x, int y, int width, int height) {
+        g.setColor(new Color(80, 170, 255));
+        g.fillRect(x, y, width, height);
+
+        g.setColor(Color.WHITE);
+        g.drawRect(x, y, width - 1, height - 1);
+
+        g.setColor(new Color(20, 80, 150));
+        g.drawLine(x, y + height / 2, x + width, y + height / 2);
+        g.drawLine(x + width / 2, y, x + width / 2, y + height / 2);
+        g.drawLine(x + width / 4, y + height / 2, x + width / 4, y + height);
+        g.drawLine(x + 3 * width / 4, y + height / 2,
+                x + 3 * width / 4, y + height);
     }
 
     private void drawStarCluster(Graphics g, int x, int y, int width, int height) {
@@ -265,17 +315,24 @@ public class Scene1 extends JPanel {
 
     private void drawPlayer(Graphics g) {
 
-        if (player.isVisible()) {
+    if (player.isVisible()) {
+        g.drawImage(
+                player.getImage(),
+                player.getX(),
+                player.getY(),
+                this
+        );
+    }
 
-            g.drawImage(player.getImage(), player.getX(), player.getY(), this);
-        }
+    if (player.isDying()) {
 
-        if (player.isDying()) {
-
-            player.die();
+        if (playerExplosionFrames > 0) {
+            playerExplosionFrames--;
+        } else {
             inGame = false;
         }
     }
+}
 
     private void drawShot(Graphics g) {
 
@@ -410,6 +467,29 @@ public class Scene1 extends JPanel {
         // player
         player.act();
 
+        // The player explodes when it collides with a scrolling MAP wall tile.
+        Rectangle playerBounds = new Rectangle(
+                player.getX(),
+                player.getY(),
+                player.getImage().getWidth(null),
+                player.getImage().getHeight(null)
+        );
+
+        for (Rectangle wallBounds : activeWallTiles.values()) {
+            if (player.isVisible()
+                    && !player.isDying()
+                    && playerBounds.intersects(wallBounds)) {
+
+                explosions.add(new Explosion(player.getX(), player.getY()));
+                playSoundEffect("src/audio/player-hit.wav");
+                player.setDying(true);
+                player.die();
+                playerExplosionFrames = 30;
+                message = "You crashed into a wall!";
+                break;
+            }
+        }
+
         // Power-ups
         for (PowerUp powerup : powerups) {
             if (powerup.isVisible()) {
@@ -434,6 +514,39 @@ public class Scene1 extends JPanel {
             if (shot.isVisible()) {
                 int shotX = shot.getX();
                 int shotY = shot.getY();
+
+                // A player shot destroys a scrolling MAP wall tile.
+                Rectangle shotBounds = new Rectangle(
+                        shot.getX(),
+                        shot.getY(),
+                        shot.getImage().getWidth(null),
+                        shot.getImage().getHeight(null)
+                );
+
+                for (java.util.Map.Entry<String, Rectangle> wallEntry
+                        : activeWallTiles.entrySet()) {
+
+                    if (shot.isVisible()
+                            && shotBounds.intersects(wallEntry.getValue())) {
+
+                        destroyedWallTiles.add(wallEntry.getKey());
+                        shot.die();
+                        shotsToRemove.add(shot);
+
+                        Rectangle wallBounds = wallEntry.getValue();
+                        explosions.add(new Explosion(
+                                wallBounds.x,
+                                wallBounds.y
+                        ));
+
+                        playSoundEffect("src/audio/wall-break.wav");
+                        break;
+                    }
+                }
+
+                if (!shot.isVisible()) {
+                    continue;
+                }
 
                 for (Enemy enemy : enemies) {
                     // Collision detection: shot and enemy
@@ -552,6 +665,60 @@ public class Scene1 extends JPanel {
         }
     }
 
+    private void playShotSound() {
+        try {
+            java.io.File soundFile = new java.io.File("src/audio/shot.wav");
+            javax.sound.sampled.AudioInputStream audioStream =
+                    javax.sound.sampled.AudioSystem.getAudioInputStream(soundFile);
+            javax.sound.sampled.Clip soundClip =
+                    javax.sound.sampled.AudioSystem.getClip();
+
+            soundClip.open(audioStream);
+            soundClip.addLineListener(event -> {
+                if (event.getType() == javax.sound.sampled.LineEvent.Type.STOP) {
+                    soundClip.close();
+                    try {
+                        audioStream.close();
+                    } catch (Exception e) {
+                        System.err.println("Could not close shot sound.");
+                    }
+                }
+            });
+
+            soundClip.setFramePosition(0);
+            soundClip.start();
+        } catch (Exception e) {
+            System.err.println("Could not play shot sound: " + e.getMessage());
+        }
+    }
+
+    private void playSoundEffect(String soundPath) {
+        try {
+            java.io.File soundFile = new java.io.File(soundPath);
+            javax.sound.sampled.AudioInputStream audioStream =
+                    javax.sound.sampled.AudioSystem.getAudioInputStream(soundFile);
+            javax.sound.sampled.Clip soundClip =
+                    javax.sound.sampled.AudioSystem.getClip();
+
+            soundClip.open(audioStream);
+            soundClip.addLineListener(event -> {
+                if (event.getType() == javax.sound.sampled.LineEvent.Type.STOP) {
+                    soundClip.close();
+                    try {
+                        audioStream.close();
+                    } catch (Exception e) {
+                        System.err.println("Could not close sound effect.");
+                    }
+                }
+            });
+
+            soundClip.setFramePosition(0);
+            soundClip.start();
+        } catch (Exception e) {
+            System.err.println("Could not play sound effect: " + e.getMessage());
+        }
+    }
+
     private class TAdapter extends KeyAdapter {
 
         @Override
@@ -576,6 +743,7 @@ public class Scene1 extends JPanel {
                     // Create a new shot and add it to the list
                     Shot shot = new Shot(x, y);
                     shots.add(shot);
+                    playShotSound();
                 }
             }
 
